@@ -57,14 +57,14 @@ npm run dev
 
 后端接口：
 
-- `GET /options`
-- `POST /options`
-- `POST /vote/:id`
-- `GET /export`
-- `GET /auth/github`
-- `GET /auth/github/callback`
-- `GET /me`
-- `POST /logout`
+- `GET /api/options`
+- `POST /api/options`
+- `POST /api/vote/:id`
+- `GET /api/export`
+- `GET /api/auth/github`
+- `GET /api/auth/github/callback`
+- `GET /api/me`
+- `POST /api/logout`
 
 ### 前端
 
@@ -85,7 +85,7 @@ GITHUB_CLIENT_SECRET=your_client_secret
 SESSION_SECRET=any_random_string
 FRONTEND_URL=http://localhost:3000
 API_URL=http://localhost:8000
-GITHUB_CALLBACK_URL=http://localhost:8000/auth/github/callback
+GITHUB_CALLBACK_URL=http://localhost:8000/api/auth/github/callback
 PORT=8000
 ```
 
@@ -98,7 +98,7 @@ NEXT_PUBLIC_API_URL=http://localhost:8000
 GitHub OAuth 应用配置建议：
 
 - Homepage URL: `http://localhost:3000`
-- Authorization callback URL: `http://localhost:8000/auth/github/callback`
+- Authorization callback URL: `http://localhost:8000/api/auth/github/callback`
 
 ## 数据库清除指南
 

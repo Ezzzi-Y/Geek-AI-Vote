@@ -15,6 +15,7 @@ const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const API_URL = process.env.API_URL || `http://localhost:${PORT}`;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-session-secret';
 const POLL_TITLE = 'GeekAI 最想上的功能';
+const API_PREFIX = '/api';
 
 const dbPath = path.join(__dirname, 'database.db');
 const db = new Database(dbPath);
@@ -97,7 +98,7 @@ if (githubClientId && githubClientSecret) {
       {
         clientID: githubClientId,
         clientSecret: githubClientSecret,
-        callbackURL: process.env.GITHUB_CALLBACK_URL || `${API_URL}/auth/github/callback`,
+        callbackURL: process.env.GITHUB_CALLBACK_URL || `${API_URL}${API_PREFIX}/auth/github/callback`,
       },
       (accessToken, refreshToken, profile, done) => {
         try {
@@ -130,7 +131,7 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false,
+      secure: true,
     },
   })
 );
@@ -149,14 +150,14 @@ function toCsvCell(value) {
   return `"${text.replace(/"/g, '""')}"`;
 }
 
-app.get('/auth/github', (req, res, next) => {
+app.get(`${API_PREFIX}/auth/github`, (req, res, next) => {
   if (!githubClientId || !githubClientSecret) {
     return res.status(500).json({ error: 'OAuth 未配置，请检查后端环境变量' });
   }
   return passport.authenticate('github', { scope: ['read:user'] })(req, res, next);
 });
 
-app.get('/auth/github/callback', (req, res, next) => {
+app.get(`${API_PREFIX}/auth/github/callback`, (req, res, next) => {
   if (!githubClientId || !githubClientSecret) {
     return res.redirect(FRONTEND_URL);
   }
@@ -165,14 +166,14 @@ app.get('/auth/github/callback', (req, res, next) => {
   });
 });
 
-app.get('/me', (req, res) => {
+app.get(`${API_PREFIX}/me`, (req, res) => {
   if (!req.user) {
     return res.json(null);
   }
   return res.json({ id: req.user.id, login: req.user.login });
 });
 
-app.post('/logout', (req, res, next) => {
+app.post(`${API_PREFIX}/logout`, (req, res, next) => {
   req.logout((err) => {
     if (err) {
       return next(err);
@@ -187,7 +188,7 @@ app.post('/logout', (req, res, next) => {
   });
 });
 
-app.get('/options', (req, res) => {
+app.get(`${API_PREFIX}/options`, (req, res) => {
   const options = listOptionsStmt.all();
 
   let votedOptionId = null;
@@ -207,7 +208,7 @@ app.get('/options', (req, res) => {
   });
 });
 
-app.post('/options', requireAuth, (req, res) => {
+app.post(`${API_PREFIX}/options`, requireAuth, (req, res) => {
   const label = String(req.body?.label || '').trim();
   if (!label) {
     return res.status(400).json({ error: '选项内容不能为空' });
@@ -235,7 +236,7 @@ app.post('/options', requireAuth, (req, res) => {
   }
 });
 
-app.post('/vote/:id', requireAuth, (req, res) => {
+app.post(`${API_PREFIX}/vote/:id`, requireAuth, (req, res) => {
   const optionId = Number(req.params.id);
   if (!Number.isInteger(optionId) || optionId <= 0) {
     return res.status(400).json({ error: '无效的投票项 ID' });
@@ -257,7 +258,7 @@ app.post('/vote/:id', requireAuth, (req, res) => {
   }
 });
 
-app.get('/export', (req, res) => {
+app.get(`${API_PREFIX}/export`, (req, res) => {
   const rows = listOptionsStmt.all();
   const lines = ['label,votes'];
   for (const row of rows) {
