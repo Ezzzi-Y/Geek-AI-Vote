@@ -117,7 +117,7 @@ export default function Home() {
         <div className="pixel-card p-4 md:p-6 flex items-center justify-between">
           <div>
             <p className="text-[#8b8680] text-xs font-bold uppercase tracking-widest mb-1 font-mono">
-              GeekAI · 功能投票
+              GeekAI · AI Coding社课投票
             </p>
             <h1 className="text-lg md:text-2xl font-bold uppercase tracking-wider text-[#1a1c2c]">
               {poll?.title ?? '投票'}
@@ -156,13 +156,13 @@ export default function Home() {
         {canCreate && (
           <form onSubmit={handleCreate} className="pixel-card p-4 md:p-6">
             <h2 className="text-[#1a1c2c] font-bold uppercase tracking-wider text-sm md:text-base mb-2">
-              ▸ 提交你的功能建议
+              ▸ 提交你的想法
             </h2>
             <p className="text-[#8b8680] text-xs font-mono mb-4">每人限一条，提交即算投票</p>
             <div className="flex gap-2 md:gap-3">
               <input
                 className="pixel-input flex-1"
-                placeholder="描述你最期待的功能…"
+                placeholder="描述你想用AI Coding实现的功能…"
                 value={newLabel}
                 onChange={e => { setNewLabel(e.target.value); setError(''); }}
                 maxLength={100}
