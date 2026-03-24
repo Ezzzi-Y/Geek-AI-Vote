@@ -1,0 +1,21 @@
+# Dependencies
+backend/node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/.next/
+
+# Local runtime data
+backend/database.db
+
+# Real env files
+backend/.env
+frontend/.env
+frontend/.env.local
+frontend/.env.development.local
+frontend/.env.test.local
+frontend/.env.production.local
+
+# Keep env examples
+!backend/.env.example
+!frontend/.env.local.example
