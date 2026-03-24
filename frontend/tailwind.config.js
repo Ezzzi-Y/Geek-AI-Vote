@@ -5,11 +5,7 @@ module.exports = {
     './styles/**/*.{css,scss}'
   ],
   theme: {
-    extend: {
-      fontFamily: {
-        pixel: ['"Press Start 2P"', 'monospace'],
-      },
-    },
+    extend: {}
   },
   plugins: []
 };

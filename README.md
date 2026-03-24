@@ -131,14 +131,14 @@ npm run dev
 │   │   ├── layout.tsx
 │   │   └── page.tsx     # 唯一页面
 │   ├── styles/
-│   │   └── globals.css  # Tailwind + Pixel Art 像素风组件类
+│   │   └── globals.css  # Tailwind + glass 组件类
 │   ├── next-env.d.ts
 │   ├── next.config.js
 │   ├── tailwind.config.js
 │   ├── tsconfig.json
 │   ├── package.json
 │   └── postcss.config.js
-├── pixel-art-hard-prompt.md  # UI 风格规范：像素艺术风（必读）
+├── glassmorphism.md     # UI 风格规范（必读）
 ├── README.md
 └── CLAUDE.md
 ```

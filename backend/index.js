@@ -14,7 +14,7 @@ const PORT = Number(process.env.PORT || 8000);
 const FRONTEND_URL = process.env.FRONTEND_URL || 'http://localhost:3000';
 const API_URL = process.env.API_URL || `http://localhost:${PORT}`;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-session-secret';
-const POLL_TITLE = 'GeekAI 最想上的功能';
+const POLL_TITLE = 'GeekAI 你想用AI做的软件或应用';
 const API_PREFIX = '/api';
 
 const dbPath = path.join(__dirname, 'database.db');
@@ -131,7 +131,7 @@ app.use(
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: process.env.NODE_ENV === 'production',
+      secure: false,
     },
   })
 );
