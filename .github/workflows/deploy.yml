@@ -4,12 +4,34 @@ on:
   push:
     branches: [main]
 
+env:
+  SERVER_DIR: /opt/vote
+
 jobs:
+  # ── 后端：rsync 源码 → 服务器 npm install → pm2 重启 ──
   deploy-backend:
     name: Deploy Backend
     runs-on: ubuntu-latest
     steps:
-      - name: SSH & Deploy Backend
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rsync backend source to server
+        run: |
+          rsync -az --delete \
+            --exclude='.env' \
+            --exclude='node_modules' \
+            --exclude='database.db' \
+            backend/ ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.SERVER_DIR }}/backend/
+
+      - name: Install deps & restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -17,18 +39,55 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             set -e
-            cd /opt/vote/backend
-            git pull origin main
+            cd ${{ env.SERVER_DIR }}/backend
             npm install --production
             pm2 restart geekai-backend || pm2 start index.js --name geekai-backend
             pm2 save
 
+  # ── 前端：GitHub runner 上 build → rsync 产物 → pm2 重启 ──
   deploy-frontend:
     name: Deploy Frontend
     runs-on: ubuntu-latest
     needs: deploy-backend
     steps:
-      - name: SSH & Deploy Frontend
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install & Build frontend
+        working-directory: frontend
+        env:
+          NEXT_PUBLIC_API_URL: https://geek.ezzi.asia
+        run: |
+          npm ci
+          npm run build
+
+      - name: Setup SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Rsync build output to server
+        run: |
+          rsync -az --delete \
+            --exclude='.env.local' \
+            --exclude='node_modules' \
+            frontend/.next/  ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.SERVER_DIR }}/frontend/.next/
+          rsync -az \
+            frontend/package.json \
+            frontend/package-lock.json \
+            frontend/next.config.js \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:${{ env.SERVER_DIR }}/frontend/
+
+      - name: Install deps & restart PM2
         uses: appleboy/ssh-action@v1.0.3
         with:
           host: ${{ secrets.SERVER_HOST }}
@@ -36,9 +95,7 @@ jobs:
           key: ${{ secrets.SERVER_SSH_KEY }}
           script: |
             set -e
-            cd /opt/vote/frontend
-            git pull origin main
-            npm install
-            npm run build
+            cd ${{ env.SERVER_DIR }}/frontend
+            npm install --production
             pm2 restart geekai-frontend || pm2 start npm --name geekai-frontend -- start
             pm2 save
