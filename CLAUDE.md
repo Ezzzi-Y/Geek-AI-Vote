@@ -28,7 +28,7 @@ npm run build && npm run start     # 生产运行
 - **数据流**：前端请求 `NEXT_PUBLIC_API_URL`（默认 `http://localhost:8000`）。主要接口：
   - `GET /options` — 获取所有投票项（按票数降序）
   - `POST /options` — 创建投票项（登录用户，每人限一次，自动 +1 票）
-  - `POST /vote/:id` — 投票（登录用户，每人限投一次）
+  - `POST /vote/:id` — 投票（登录用户，每人限投两票）
   - `GET /export` — 导出 CSV（投票项 + 票数）
   - `GET /auth/github` — GitHub OAuth 入口
   - `GET /auth/github/callback` — GitHub OAuth 回调
@@ -57,12 +57,13 @@ created_at  DATETIME
 **`votes`** — 投票记录
 ```sql
 id          INTEGER PRIMARY KEY
-user_id     INTEGER UNIQUE REFERENCES users(id)  -- UNIQUE 保证每人只投一次
+user_id     INTEGER REFERENCES users(id)
 option_id   INTEGER REFERENCES options(id)
 created_at  DATETIME
+UNIQUE(user_id, option_id) -- 保证不能给同一个选项投多次
 ```
 
-**创建投票项**在事务内执行：先 `INSERT INTO options`，再 `INSERT INTO votes`（创建者自动算已投票，同时触发 `UNIQUE(user_id)` 防止再投他人）。
+**创建投票项**在事务内执行：先 `INSERT INTO options`，再 `INSERT INTO votes`（创建者自动算已投票，同时触发 `UNIQUE(user_id, option_id)` 防止再投他人）。
 
 **排行查询**：
 ```sql
@@ -75,8 +76,8 @@ GROUP BY o.id ORDER BY votes DESC
 ## 业务规则
 
 - 投票标题在后端代码中硬编码，不存数据库
-- 每个用户只能创建一个投票项；创建即自动计 1 票（创建者视为已投票）
-- 每个用户只能投票一次（投给他人或自己创建的选项均算）
+- 每个用户只能创建一个投票项；创建即自动计 1 票（创建者视为已投一票，剩余一票可投他人）
+- 每个用户总共只能投两票（包括自己创建选项自动计的那一票）
 - 投票项一经创建不可删除、不可修改
 - 无管理员角色，所有用户权限一致
 - 导出格式：CSV，字段为 `label,votes`

@@ -4,8 +4,9 @@
 
 - 投票标题固定预设，不可更改
 - 用户通过 GitHub OAuth 登录
-- 每个用户最多创建一个投票项，创建即自动获得 1 票
-- 用户可以投票给任意他人的投票项（每人只能投一票）
+- 每个用户限投两票（可以投给任意他人的投票项，或自己创建一项自动投一票后再投他人一项）
+- 每个用户只能创建一个投票项；创建即自动计 1 票（创建者视为已投一票，剩余一票可投他人）
+- 每个用户总共只能投两票（包括自己创建选项自动计的那一票）
 - 投票项按票数从高到低排列
 - 投票项不可删除、不可修改
 - 无管理员角色
@@ -32,17 +33,18 @@ CREATE TABLE options (
 
 CREATE TABLE votes (
 	id INTEGER PRIMARY KEY,
-	user_id INTEGER UNIQUE NOT NULL REFERENCES users(id),
+	user_id INTEGER NOT NULL REFERENCES users(id),
 	option_id INTEGER NOT NULL REFERENCES options(id),
-	created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+	created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+	UNIQUE(user_id, option_id)
 );
 ```
 
 关键约束：
 
 - `users.github_id UNIQUE`：同一 GitHub 账号只对应一个本地用户
-- `votes.user_id UNIQUE`：每个用户只能投票一次
-- 创建投票项时在事务内自动写入 `votes`，即“创建即投票 +1”
+- `votes.user_id, votes.option_id` 联合唯一：防止给同一项重复投票
+- 创建投票项时在事务内自动写入 `votes`，即“创建即投票 +1”，占用该用户的一票名额
 
 ## 快速启动
 
@@ -59,7 +61,7 @@ npm run dev
 
 - `GET /api/options`
 - `POST /api/options`
-- `POST /api/vote/:id`
+- `POST /api/vote/:id` — 投票（登录用户，每人限投两票）
 - `GET /api/export`
 - `GET /api/auth/github`
 - `GET /api/auth/github/callback`

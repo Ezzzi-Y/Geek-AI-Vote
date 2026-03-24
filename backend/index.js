@@ -38,9 +38,10 @@ db.exec(`
 
   CREATE TABLE IF NOT EXISTS votes (
     id INTEGER PRIMARY KEY,
-    user_id INTEGER UNIQUE NOT NULL REFERENCES users(id),
+    user_id INTEGER NOT NULL REFERENCES users(id),
     option_id INTEGER NOT NULL REFERENCES options(id),
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(user_id, option_id)
   );
 `);
 
@@ -60,10 +61,12 @@ const listOptionsStmt = db.prepare(`
   GROUP BY o.id
   ORDER BY votes DESC, o.id ASC
 `);
-const getVotedOptionStmt = db.prepare('SELECT option_id FROM votes WHERE user_id = ?');
+const getVotedOptionsStmt = db.prepare('SELECT option_id FROM votes WHERE user_id = ?');
+const countUserVotesStmt = db.prepare('SELECT COUNT(*) as count FROM votes WHERE user_id = ?');
 const getMyOptionStmt = db.prepare('SELECT id FROM options WHERE creator_id = ?');
 const insertOptionStmt = db.prepare('INSERT INTO options (label, creator_id) VALUES (?, ?)');
 const insertVoteStmt = db.prepare('INSERT INTO votes (user_id, option_id) VALUES (?, ?)');
+const checkIfVotedStmt = db.prepare('SELECT 1 FROM votes WHERE user_id = ? AND option_id = ?');
 const optionExistsStmt = db.prepare('SELECT id FROM options WHERE id = ?');
 
 const createOptionWithAutoVote = db.transaction((label, userId) => {
@@ -191,19 +194,19 @@ app.post(`${API_PREFIX}/logout`, (req, res, next) => {
 app.get(`${API_PREFIX}/options`, (req, res) => {
   const options = listOptionsStmt.all();
 
-  let votedOptionId = null;
+  let votedOptionIds = [];
   let myOptionId = null;
   if (req.user) {
-    const voted = getVotedOptionStmt.get(req.user.id);
+    const voted = getVotedOptionsStmt.all(req.user.id);
     const mine = getMyOptionStmt.get(req.user.id);
-    votedOptionId = voted ? voted.option_id : null;
+    votedOptionIds = voted.map(v => v.option_id);
     myOptionId = mine ? mine.id : null;
   }
 
   res.json({
     title: POLL_TITLE,
     options,
-    votedOptionId,
+    votedOptionIds,
     myOptionId,
   });
 });
@@ -223,9 +226,9 @@ app.post(`${API_PREFIX}/options`, requireAuth, (req, res) => {
     return res.status(400).json({ error: '每个用户只能创建一个投票项' });
   }
 
-  const voted = getVotedOptionStmt.get(userId);
-  if (voted) {
-    return res.status(400).json({ error: '你已经投过票，不能再创建投票项' });
+  const voteCount = countUserVotesStmt.get(userId).count;
+  if (voteCount >= 2) {
+    return res.status(400).json({ error: '你已经投满两票，不能再创建投票项' });
   }
 
   try {
@@ -247,13 +250,21 @@ app.post(`${API_PREFIX}/vote/:id`, requireAuth, (req, res) => {
     return res.status(404).json({ error: '投票项不存在' });
   }
 
+  const userId = req.user.id;
+  const voteCount = countUserVotesStmt.get(userId).count;
+  if (voteCount >= 2) {
+    return res.status(400).json({ error: '每人限投两票' });
+  }
+
+  const alreadyVotedForThis = checkIfVotedStmt.get(userId, optionId);
+  if (alreadyVotedForThis) {
+    return res.status(400).json({ error: '你已经为该选项投过票了' });
+  }
+
   try {
-    insertVoteStmt.run(req.user.id, optionId);
+    insertVoteStmt.run(userId, optionId);
     return res.json({ ok: true });
   } catch (err) {
-    if (err && err.code === 'SQLITE_CONSTRAINT_UNIQUE') {
-      return res.status(400).json({ error: '每人只能投票一次' });
-    }
     return res.status(500).json({ error: '投票失败，请稍后重试' });
   }
 });
