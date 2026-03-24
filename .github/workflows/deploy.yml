@@ -23,6 +23,11 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
 
+      - name: Ensure server directories exist
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "mkdir -p ${{ env.SERVER_DIR }}/backend ${{ env.SERVER_DIR }}/frontend"
+
       - name: Rsync backend source to server
         run: |
           rsync -az --delete \
@@ -74,6 +79,11 @@ jobs:
           echo "${{ secrets.SERVER_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      - name: Ensure frontend directory exists on server
+        run: |
+          ssh -i ~/.ssh/id_ed25519 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} \
+            "mkdir -p ${{ env.SERVER_DIR }}/frontend/.next"
 
       - name: Rsync build output to server
         run: |
