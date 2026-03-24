@@ -7,6 +7,7 @@ const session = require('express-session');
 const passport = require('passport');
 const GitHubStrategy = require('passport-github2').Strategy;
 const Database = require('better-sqlite3');
+const SqliteStore = require('better-sqlite3-session-store')(session);
 
 const app = express();
 
@@ -16,10 +17,15 @@ const API_URL = process.env.API_URL || `http://localhost:${PORT}`;
 const SESSION_SECRET = process.env.SESSION_SECRET || 'dev-session-secret';
 const POLL_TITLE = 'GeekAI 你想用AI做的软件或应用';
 const API_PREFIX = '/api';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// ─── Database ────────────────────────────────────────────────────────────────
 
 const dbPath = path.join(__dirname, 'database.db');
 const db = new Database(dbPath);
 db.pragma('foreign_keys = ON');
+db.pragma('journal_mode = WAL');      // 修复：提高并发读写性能，避免锁竞争
+db.pragma('busy_timeout = 5000');     // 修复：锁等待最多 5s，不再永久卡住
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS users (
@@ -45,6 +51,9 @@ db.exec(`
   );
 `);
 
+// ─── Prepared Statements ──────────────────────────────────────────────────────
+// 修复：listOptions 在两处使用，各自独立 prepare，避免 statement 状态冲突
+
 const getUserByIdStmt = db.prepare('SELECT id, github_login FROM users WHERE id = ?');
 const upsertUserStmt = db.prepare(`
   INSERT INTO users (github_id, github_login)
@@ -54,13 +63,21 @@ const upsertUserStmt = db.prepare(`
 `);
 const getUserByGithubIdStmt = db.prepare('SELECT id, github_login FROM users WHERE github_id = ?');
 
-const listOptionsStmt = db.prepare(`
+const listOptionsForApiStmt = db.prepare(`
   SELECT o.id, o.label, o.creator_id, COUNT(v.id) AS votes
   FROM options o
   LEFT JOIN votes v ON v.option_id = o.id
   GROUP BY o.id
   ORDER BY votes DESC, o.id ASC
 `);
+const listOptionsForExportStmt = db.prepare(`
+  SELECT o.id, o.label, o.creator_id, COUNT(v.id) AS votes
+  FROM options o
+  LEFT JOIN votes v ON v.option_id = o.id
+  GROUP BY o.id
+  ORDER BY votes DESC, o.id ASC
+`);
+
 const getVotedOptionsStmt = db.prepare('SELECT option_id FROM votes WHERE user_id = ?');
 const countUserVotesStmt = db.prepare('SELECT COUNT(*) as count FROM votes WHERE user_id = ?');
 const getMyOptionStmt = db.prepare('SELECT id FROM options WHERE creator_id = ?');
@@ -76,6 +93,8 @@ const createOptionWithAutoVote = db.transaction((label, userId) => {
   return optionId;
 });
 
+// ─── Passport ────────────────────────────────────────────────────────────────
+
 passport.serializeUser((user, done) => {
   done(null, user.id);
 });
@@ -83,9 +102,7 @@ passport.serializeUser((user, done) => {
 passport.deserializeUser((id, done) => {
   try {
     const user = getUserByIdStmt.get(id);
-    if (!user) {
-      return done(null, false);
-    }
+    if (!user) return done(null, false);
     done(null, { id: user.id, login: user.github_login });
   } catch (err) {
     done(err);
@@ -107,7 +124,6 @@ if (githubClientId && githubClientSecret) {
         try {
           const githubId = String(profile.id);
           const login = profile.username || profile.displayName || `github_${githubId}`;
-
           upsertUserStmt.run(githubId, login);
           const user = getUserByGithubIdStmt.get(githubId);
           done(null, { id: user.id, login: user.github_login });
@@ -119,32 +135,43 @@ if (githubClientId && githubClientSecret) {
   );
 }
 
-app.use(
-  cors({
-    origin: FRONTEND_URL,
-    credentials: true,
-  })
-);
+// ─── Middleware ───────────────────────────────────────────────────────────────
+
+app.use(cors({ origin: FRONTEND_URL, credentials: true }));
 app.use(express.json());
+
+// 修复：用 better-sqlite3-session-store 替换默认 MemoryStore
+// MemoryStore 会随登录用户增多不断占用内存，重启后全部丢失
+const sessionStore = new SqliteStore({
+  client: db,
+  expired: {
+    clear: true,
+    intervalMs: 15 * 60 * 1000, // 每 15 分钟清理过期 session
+  },
+});
+
 app.use(
   session({
     secret: SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
+    store: sessionStore,
     cookie: {
       httpOnly: true,
       sameSite: 'lax',
-      secure: false,
+      secure: IS_PRODUCTION,   // 修复：生产环境 HTTPS 下必须为 true
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 天
     },
   })
 );
+
 app.use(passport.initialize());
 app.use(passport.session());
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function requireAuth(req, res, next) {
-  if (!req.user) {
-    return res.status(401).json({ error: '请先登录' });
-  }
+  if (!req.user) return res.status(401).json({ error: '请先登录' });
   next();
 }
 
@@ -152,6 +179,8 @@ function toCsvCell(value) {
   const text = String(value ?? '');
   return `"${text.replace(/"/g, '""')}"`;
 }
+
+// ─── Auth Routes ──────────────────────────────────────────────────────────────
 
 app.get(`${API_PREFIX}/auth/github`, (req, res, next) => {
   if (!githubClientId || !githubClientSecret) {
@@ -170,29 +199,25 @@ app.get(`${API_PREFIX}/auth/github/callback`, (req, res, next) => {
 });
 
 app.get(`${API_PREFIX}/me`, (req, res) => {
-  if (!req.user) {
-    return res.json(null);
-  }
+  if (!req.user) return res.json(null);
   return res.json({ id: req.user.id, login: req.user.login });
 });
 
 app.post(`${API_PREFIX}/logout`, (req, res, next) => {
   req.logout((err) => {
-    if (err) {
-      return next(err);
-    }
+    if (err) return next(err);
     req.session.destroy((destroyErr) => {
-      if (destroyErr) {
-        return next(destroyErr);
-      }
+      if (destroyErr) return next(destroyErr);
       res.clearCookie('connect.sid');
       return res.json({ ok: true });
     });
   });
 });
 
+// ─── Poll Routes ──────────────────────────────────────────────────────────────
+
 app.get(`${API_PREFIX}/options`, (req, res) => {
-  const options = listOptionsStmt.all();
+  const options = listOptionsForApiStmt.all();
 
   let votedOptionIds = [];
   let myOptionId = null;
@@ -203,38 +228,26 @@ app.get(`${API_PREFIX}/options`, (req, res) => {
     myOptionId = mine ? mine.id : null;
   }
 
-  res.json({
-    title: POLL_TITLE,
-    options,
-    votedOptionIds,
-    myOptionId,
-  });
+  res.json({ title: POLL_TITLE, options, votedOptionIds, myOptionId });
 });
 
 app.post(`${API_PREFIX}/options`, requireAuth, (req, res) => {
   const label = String(req.body?.label || '').trim();
-  if (!label) {
-    return res.status(400).json({ error: '选项内容不能为空' });
-  }
-  if (label.length > 100) {
-    return res.status(400).json({ error: '选项内容不能超过 100 个字符' });
-  }
+  if (!label) return res.status(400).json({ error: '选项内容不能为空' });
+  if (label.length > 100) return res.status(400).json({ error: '选项内容不能超过 100 个字符' });
 
   const userId = req.user.id;
   const myOption = getMyOptionStmt.get(userId);
-  if (myOption) {
-    return res.status(400).json({ error: '每个用户只能创建一个投票项' });
-  }
+  if (myOption) return res.status(400).json({ error: '每个用户只能创建一个投票项' });
 
   const voteCount = countUserVotesStmt.get(userId).count;
-  if (voteCount >= 2) {
-    return res.status(400).json({ error: '你已经投满两票，不能再创建投票项' });
-  }
+  if (voteCount >= 2) return res.status(400).json({ error: '你已经投满两票，不能再创建投票项' });
 
   try {
     const optionId = createOptionWithAutoVote(label, userId);
     return res.status(201).json({ id: optionId });
   } catch (err) {
+    console.error('[create option]', err);
     return res.status(500).json({ error: '创建失败，请稍后重试' });
   }
 });
@@ -246,49 +259,44 @@ app.post(`${API_PREFIX}/vote/:id`, requireAuth, (req, res) => {
   }
 
   const exists = optionExistsStmt.get(optionId);
-  if (!exists) {
-    return res.status(404).json({ error: '投票项不存在' });
-  }
+  if (!exists) return res.status(404).json({ error: '投票项不存在' });
 
   const userId = req.user.id;
   const voteCount = countUserVotesStmt.get(userId).count;
-  if (voteCount >= 2) {
-    return res.status(400).json({ error: '每人限投两票' });
-  }
+  if (voteCount >= 2) return res.status(400).json({ error: '每人限投两票' });
 
-  const alreadyVotedForThis = checkIfVotedStmt.get(userId, optionId);
-  if (alreadyVotedForThis) {
-    return res.status(400).json({ error: '你已经为该选项投过票了' });
-  }
+  const alreadyVoted = checkIfVotedStmt.get(userId, optionId);
+  if (alreadyVoted) return res.status(400).json({ error: '你已经为该选项投过票了' });
 
   try {
     insertVoteStmt.run(userId, optionId);
     return res.json({ ok: true });
   } catch (err) {
+    console.error('[vote]', err);
     return res.status(500).json({ error: '投票失败，请稍后重试' });
   }
 });
 
 app.get(`${API_PREFIX}/export`, (req, res) => {
-  const rows = listOptionsStmt.all();
+  const rows = listOptionsForExportStmt.all();
   const lines = ['label,votes'];
   for (const row of rows) {
     lines.push(`${toCsvCell(row.label)},${row.votes}`);
   }
-
-  const csv = lines.join('\n');
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', 'attachment; filename="votes.csv"');
-  res.send(csv);
+  res.send(lines.join('\n'));
 });
 
+// ─── Error Handler ────────────────────────────────────────────────────────────
+
 app.use((err, req, res, next) => {
-  console.error(err);
-  if (res.headersSent) {
-    return next(err);
-  }
+  console.error('[unhandled]', err);
+  if (res.headersSent) return next(err);
   return res.status(500).json({ error: '服务器内部错误' });
 });
+
+// ─── Start ────────────────────────────────────────────────────────────────────
 
 app.listen(PORT, () => {
   console.log(`Backend listening on http://localhost:${PORT}`);
