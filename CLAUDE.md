@@ -24,7 +24,7 @@ npm run build && npm run start     # 生产运行
 ## 架构说明
 
 - **后端**：所有逻辑写在单一文件 `backend/index.js`。Express + SQLite（`better-sqlite3`），直接使用 SQL，无 ORM。GitHub OAuth 通过 `passport-github2` 实现，session 存储在内存或 SQLite。
-- **前端**：Next.js App Router，只有一个页面 `frontend/app/page.tsx`。全局样式在 `frontend/styles/globals.css`，其中定义 `.glass-card` 和 `.glass-option` 组件类。
+- **前端**：Next.js App Router，只有一个页面 `frontend/app/page.tsx`。全局样式在 `frontend/styles/globals.css`，其中定义像素艺术风组件类。
 - **数据流**：前端请求 `NEXT_PUBLIC_API_URL`（默认 `http://localhost:8000`）。主要接口：
   - `GET /options` — 获取所有投票项（按票数降序）
   - `POST /options` — 创建投票项（登录用户，每人限一次，自动 +1 票）
@@ -83,14 +83,15 @@ GROUP BY o.id ORDER BY votes DESC
 
 ## UI 规范（强制）
 
-所有 UI 修改必须严格遵循 `glassmorphism.md`（Apple Liquid Glass 风格）。核心要求：
-- 必须有渐变或图片底层背景（禁止纯色背景）
-- `backdrop-blur-[40px]` 或更高 + `backdrop-saturate-[180%]`
-- 多层阴影（外层深度 + inset 顶部高光 + 边缘光晕）
-- 内发光渐变叠加层 `linear-gradient(to bottom, rgba(255,255,255,0.18), transparent)`
-- 边框 `border-white/20`，hover 提升至 `border-white/40`
-- 过渡使用 `duration-500` + spring easing `cubic-bezier(0.16,1,0.3,1)`
-- 每次生成代码后必须按 `glassmorphism.md` 的自检清单核查
+所有 UI 修改必须严格遵循 `pixel-art-hard-prompt.md`（像素艺术风 / Pixel Art 8-bit 风格）。核心要求：
+- 所有元素 `rounded-none`，禁止任何圆角（`rounded-lg`、`rounded-full` 等绝对禁止）
+- 边框使用 `border-4 border-[#1a1c2c]`（移动端 `border-2 md:border-4`）
+- 阴影仅使用硬边偏移格式 `shadow-[Xpx_Xpx_0_#1a1c2c]`，禁止 `shadow-lg`/`shadow-xl` 等模糊阴影
+- 禁止渐变（`bg-gradient-to-r` 等），只用纯色 8-bit 配色
+- 按钮必须包含位移交互：`hover:translate-x-1 hover:translate-y-1`、`active:shadow-none`
+- 标题使用 `font-bold uppercase tracking-wider`，正文使用 `font-mono`
+- 过渡使用 `transition-all duration-100`
+- 每次生成代码后必须按 `pixel-art-hard-prompt.md` 的自检清单核查
 
 ## 约束（禁止事项）
 
